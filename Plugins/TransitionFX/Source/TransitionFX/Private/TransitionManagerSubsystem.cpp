@@ -575,7 +575,10 @@ void UTransitionManagerSubsystem::StartTransition(UTransitionPreset* Preset, ETr
 	}
 
 	// Create Effect
-	if (Preset->EffectClass)
+	// Resolved through the preset so WidgetLayer mode can substitute the widget
+	// effect class without changing the serialized EffectClass.
+	UClass* EffectClass = Preset->GetEffectiveEffectClass();
+	if (EffectClass)
 	{
 		UWorld* World = GetWorld();
 		if (World)
@@ -586,7 +589,7 @@ void UTransitionManagerSubsystem::StartTransition(UTransitionPreset* Preset, ETr
 			const bool bCanReuseExistingEffect = bHotSwap
 				&& CurrentEffect
 				&& CurrentEffect.GetObject()
-				&& CurrentEffect.GetObject()->GetClass() == Preset->EffectClass;
+				&& CurrentEffect.GetObject()->GetClass() == EffectClass;
 
 			if (bCanReuseExistingEffect)
 			{
@@ -613,7 +616,7 @@ void UTransitionManagerSubsystem::StartTransition(UTransitionPreset* Preset, ETr
 				UObject* EffectObj = nullptr;
 
 				// Check Pool (Reuse existing instance to avoid allocation and reduce GC pressure)
-				FTransitionEffectPool& Pool = EffectPool.FindOrAdd(Preset->EffectClass);
+				FTransitionEffectPool& Pool = EffectPool.FindOrAdd(EffectClass);
 				if (Pool.Effects.Num() > 0)
 				{
 					EffectObj = Pool.Effects.Pop();
@@ -622,7 +625,7 @@ void UTransitionManagerSubsystem::StartTransition(UTransitionPreset* Preset, ETr
 				// Create New if not found
 				if (!EffectObj)
 				{
-					EffectObj = NewObject<UObject>(this, Preset->EffectClass);
+					EffectObj = NewObject<UObject>(this, EffectClass);
 				}
 
 				if (EffectObj && EffectObj->Implements<UTransitionEffect>())

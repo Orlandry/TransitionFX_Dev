@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Widget-Layer Rendering Mode (Phase A — runtime)** — `UTransitionPreset` now exposes a `RenderingMode` switch (`Post Process` / `Widget Layer`) and a `WidgetTransitionMaterial` slot. In Widget Layer mode the transition is drawn by the new `UWidgetTransitionEffect` as a full-screen Slate widget on the viewport overlay, so it also covers UMG widgets added to the viewport — a long-standing limitation of the PostProcess path. The widget material must use the **User Interface** material domain; `Priority` doubles as the overlay Z-order in this mode. Existing presets are unaffected (`RenderingMode` defaults to `Post Process`, and a custom `EffectClass` is always respected). UI-domain variants of the built-in materials will ship in a follow-up.
+
 ## [1.3.0] - 2026-07-19
 
 ### Added

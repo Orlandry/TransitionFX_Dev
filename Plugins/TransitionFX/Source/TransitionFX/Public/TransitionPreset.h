@@ -63,6 +63,19 @@ public:
 	TObjectPtr<UMaterialInterface> TransitionMaterial;
 
 	/**
+	 * Rendering path for this transition. WidgetLayer draws the material as a
+	 * full-screen viewport widget so it also covers UMG widgets added to the
+	 * viewport, and requires a User Interface domain material
+	 * (WidgetTransitionMaterial).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "TransitionFX")
+	ETransitionRenderingMode RenderingMode = ETransitionRenderingMode::PostProcess;
+
+	/** Material used in WidgetLayer mode. Must use the User Interface material domain. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "TransitionFX", meta = (EditCondition = "RenderingMode == ETransitionRenderingMode::WidgetLayer", EditConditionHides))
+	TObjectPtr<UMaterialInterface> WidgetTransitionMaterial;
+
+	/**
 	 * When true, applies TransitionColor to the material's color parameter at the
 	 * start of the transition (e.g., fade-to-white) without requiring a call-site
 	 * parameter override. An explicit color supplied via FTransitionParameters at
@@ -95,7 +108,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "TransitionFX")
 	bool bTickWhenPaused;
 
-	/** Priority for PostProcess effect. */
+	/** Priority for the PostProcess effect. In WidgetLayer mode this is used as the viewport overlay Z-order. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "TransitionFX")
 	float Priority;
 
@@ -110,4 +123,12 @@ public:
 	/** Pitch of the transition sound. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Audio", meta = (ClampMin = "0.0"))
 	float SoundPitch;
+
+	/**
+	 * Resolves the effect class to spawn for this preset. When RenderingMode is
+	 * WidgetLayer and EffectClass is unset or the default UPostProcessTransitionEffect,
+	 * this substitutes UWidgetTransitionEffect; an explicitly customized EffectClass
+	 * is always respected.
+	 */
+	UClass* GetEffectiveEffectClass() const;
 };

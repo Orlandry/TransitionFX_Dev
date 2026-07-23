@@ -6,6 +6,19 @@
 #include "TransitionFXTypes.generated.h"
 
 /**
+ * Rendering path used to draw a transition.
+ */
+UENUM(BlueprintType)
+enum class ETransitionRenderingMode : uint8
+{
+	/** PostProcess volume + blendable material (default). Does not cover UMG/Slate UI layers. */
+	PostProcess UMETA(DisplayName = "Post Process"),
+
+	/** Full-screen Slate widget on the viewport overlay. Also covers UMG widgets added to the viewport. Requires a User Interface domain material. */
+	WidgetLayer UMETA(DisplayName = "Widget Layer")
+};
+
+/**
  * Procedural easing functions for transitions.
  */
 UENUM(BlueprintType)

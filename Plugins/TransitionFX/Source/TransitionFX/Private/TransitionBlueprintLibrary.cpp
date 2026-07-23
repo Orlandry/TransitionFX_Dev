@@ -359,6 +359,8 @@ static void QuickFadeInternal(const UObject* WorldContextObject, float Duration,
 		{
 			TempPreset->EffectClass = FadeData->EffectClass;
 			TempPreset->TransitionMaterial = FadeData->TransitionMaterial;
+			TempPreset->RenderingMode = FadeData->RenderingMode;
+			TempPreset->WidgetTransitionMaterial = FadeData->WidgetTransitionMaterial;
 		}
 		else
 		{
