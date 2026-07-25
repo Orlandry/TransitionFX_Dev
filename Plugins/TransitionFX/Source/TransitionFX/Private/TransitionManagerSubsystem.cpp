@@ -2,9 +2,9 @@
 
 #include "TransitionManagerSubsystem.h"
 #include "TransitionFXConfig.h"
-#include "Engine/AssetManager.h"
-#include "Engine/StreamableManager.h"
+#include "TransitionLevelTravelHandler.h"
 #include "TransitionPreset.h"
+#include "TransitionPresetPreloader.h"
 #include "TransitionSequence.h"
 #include "Sound/SoundBase.h"
 #include "Components/AudioComponent.h"
@@ -15,10 +15,9 @@
 #include "HAL/IConsoleManager.h"
 #include "TimerManager.h"
 #include "TransitionBlueprintLibrary.h"
-#include "Materials/MaterialInstanceDynamic.h"
 #include "TransitionFX.h"
 
-/** Registers console commands, preloads default assets, and binds the post-load-map delegate. */
+/** Registers console commands, preloads default assets, and creates the level travel handler. */
 void UTransitionManagerSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
@@ -33,7 +32,8 @@ void UTransitionManagerSubsystem::Initialize(FSubsystemCollectionBase& Collectio
 	// Preload default assets to avoid hitching during gameplay
 	GetDefaultFadePreset();
 
-	FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(this, &UTransitionManagerSubsystem::OnPostLoadMapWithWorld);
+	LevelTravelHandler = NewObject<UTransitionLevelTravelHandler>(this);
+	LevelTravelHandler->Initialize(this);
 }
 
 /** Lazily loads and caches the default Fade to Black preset from the configured asset path. */
@@ -51,7 +51,11 @@ void UTransitionManagerSubsystem::Deinitialize()
 {
 	IConsoleManager::Get().UnregisterConsoleObject(TEXT("TransitionFX.ForceClear"));
 
-	FCoreUObjectDelegates::PostLoadMapWithWorld.RemoveAll(this);
+	if (LevelTravelHandler)
+	{
+		LevelTravelHandler->Deinitialize();
+		LevelTravelHandler = nullptr;
+	}
 
 	// Clear any pending sequence timer and state before releasing the pool
 	if (UWorld* World = GetWorld())
@@ -193,46 +197,15 @@ bool UTransitionManagerSubsystem::IsTickable() const
  */
 void UTransitionManagerSubsystem::AsyncLoadTransitionPresets(const TArray<TSoftObjectPtr<UTransitionPreset>>& SoftPresets, FTransitionPreloadCompleteDelegate OnComplete)
 {
-	if (SoftPresets.Num() == 0)
+	FTransitionPresetPreloader::AsyncLoadAndWarmup(this, SoftPresets, [OnComplete]()
 	{
 		OnComplete.ExecuteIfBound();
-		return;
-	}
-
-	// Create Path List
-	TArray<FSoftObjectPath> ItemsToStream;
-	for (const auto& Ref : SoftPresets)
-	{
-		ItemsToStream.Add(Ref.ToSoftObjectPath());
-	}
-
-	// Get StreamableManager (from AssetManager)
-	FStreamableManager& Streamable = UAssetManager::GetStreamableManager();
-
-	// Kick Async Load
-	Streamable.RequestAsyncLoad(ItemsToStream, FStreamableDelegate::CreateWeakLambda(this, [this, SoftPresets, OnComplete]()
-	{
-		// Post-Load Processing
-		TArray<UTransitionPreset*> LoadedPresets;
-		for (const auto& Ref : SoftPresets)
-		{
-			if (UTransitionPreset* Preset = Ref.Get())
-			{
-				LoadedPresets.Add(Preset);
-			}
-		}
-
-		// Execute Shader Warmup (Synchronous Preload)
-		PreloadTransitionPresets(LoadedPresets);
-
-		// Notify Completion
-		OnComplete.ExecuteIfBound();
-	}));
+	});
 }
 
 /**
  * Orchestrates a "Fade Out -> Open Level -> Fade In" sequence.
- * Stores level transition state and binds the fade-out completion callback.
+ * Cancels any running sequence, resolves the preset, and delegates to the level travel handler.
  */
 void UTransitionManagerSubsystem::OpenLevelWithTransition(const UObject* WorldContextObject, FName LevelName, UTransitionPreset* Preset, float Duration)
 {
@@ -248,60 +221,13 @@ void UTransitionManagerSubsystem::OpenLevelWithTransition(const UObject* WorldCo
 		Preset = GetDefaultFadePreset();
 	}
 
-	PendingLevelName = LevelName;
-	PendingPreset = Preset;
-	PendingDuration = Duration;
-	bAutoReverseOnLevelLoad = true;
-
-	// Ensure we don't have stale bindings
-	OnTransitionCompleted.RemoveDynamic(this, &UTransitionManagerSubsystem::OnLevelTransitionFadeOutFinished);
-	OnTransitionCompleted.AddDynamic(this, &UTransitionManagerSubsystem::OnLevelTransitionFadeOutFinished);
-
-	float PlaySpeed = TransitionFXConfig::CalculatePlaySpeed(Preset->DefaultDuration, Duration);
-
-	// Start Fade Out (Forward, Invert=False)
-	StartTransition(Preset, ETransitionMode::Forward, PlaySpeed, false);
+	LevelTravelHandler->BeginLevelTransition(LevelName, Preset, Duration);
 }
 
 /** Stores preset and duration for an auto-reverse transition on the next level load without starting playback. */
 void UTransitionManagerSubsystem::PrepareAutoReverseTransition(UTransitionPreset* Preset, float Duration)
 {
-	PendingPreset = Preset;
-	PendingDuration = Duration;
-	bAutoReverseOnLevelLoad = true;
-}
-
-/** One-shot callback that opens the pending level after the fade-out transition completes. */
-void UTransitionManagerSubsystem::OnLevelTransitionFadeOutFinished()
-{
-	// One-shot callback
-	OnTransitionCompleted.RemoveDynamic(this, &UTransitionManagerSubsystem::OnLevelTransitionFadeOutFinished);
-
-	UGameplayStatics::OpenLevel(this, PendingLevelName);
-}
-
-/** Called after a new level is loaded. Triggers the auto-reverse fade-in if one was prepared. */
-void UTransitionManagerSubsystem::OnPostLoadMapWithWorld(UWorld* LoadedWorld)
-{
-	if (bAutoReverseOnLevelLoad)
-	{
-		bAutoReverseOnLevelLoad = false;
-
-		// Verify the loaded world matches our current world context
-		if (LoadedWorld && LoadedWorld != GetWorld())
-		{
-			UE_LOG(LogTransitionFX, Warning, TEXT("TransitionFX: OnPostLoadMapWithWorld called with mismatched world. Skipping auto-reverse."));
-			return;
-		}
-
-		if (PendingPreset)
-		{
-			float PlaySpeed = TransitionFXConfig::CalculatePlaySpeed(PendingPreset->DefaultDuration, PendingDuration);
-
-			// Start Fade In (Forward, Invert=True to go from Black to Clear if using standard mask behavior)
-			StartTransition(PendingPreset, ETransitionMode::Forward, PlaySpeed, true);
-		}
-	}
+	LevelTravelHandler->PrepareAutoReverse(Preset, Duration);
 }
 
 /**
@@ -310,63 +236,7 @@ void UTransitionManagerSubsystem::OnPostLoadMapWithWorld(UWorld* LoadedWorld)
  */
 void UTransitionManagerSubsystem::PreloadTransitionPresets(const TArray<UTransitionPreset*>& Presets)
 {
-	if (Presets.IsEmpty())
-	{
-		return;
-	}
-
-	UE_LOG(LogTransitionFX, Log, TEXT("Preloading %d Transition Presets..."), Presets.Num());
-
-	TSet<UMaterialInterface*> ProcessedMaterials;
-
-	for (UTransitionPreset* Preset : Presets)
-	{
-		if (Preset && Preset->TransitionMaterial)
-		{
-			bool bIsAlreadyInSet = false;
-			ProcessedMaterials.Add(Preset->TransitionMaterial, &bIsAlreadyInSet);
-
-			if (bIsAlreadyInSet)
-			{
-				continue;
-			}
-
-			// Create a temporary Dynamic Material Instance (MID)
-			UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(Preset->TransitionMaterial, this);
-
-			if (MID)
-			{
-				// Set a scalar parameter to ensure the uniform buffer is initialized
-				MID->SetScalarParameterValue(TransitionFXConfig::ProgressParamName, 0.0f);
-
-				// Do not store this MID. We want it to be garbage collected immediately.
-				// The sole purpose is to force the engine to compile/cache the PSOs (Pipeline State Objects) for this material.
-			}
-		}
-	}
-}
-
-/** Returns a used effect object to the pool, capping at MaxPoolSize to prevent memory bloat. */
-void UTransitionManagerSubsystem::ReturnEffectToPool(UObject* EffectObj)
-{
-	if (!EffectObj)
-	{
-		return;
-	}
-
-	FTransitionEffectPool& Pool = EffectPool.FindOrAdd(EffectObj->GetClass());
-
-	// Cap the pool size to prevent memory bloat
-	constexpr int32 MaxPoolSize = 3;
-	if (Pool.Effects.Num() < MaxPoolSize)
-	{
-		Pool.Effects.Add(EffectObj);
-	}
-	else
-	{
-		// Do nothing. Let the Garbage Collector handle the unreferenced object.
-		UE_LOG(LogTransitionFX, Verbose, TEXT("Pool for %s is full. Discarding effect instance for GC."), *EffectObj->GetClass()->GetName());
-	}
+	FTransitionPresetPreloader::WarmupShaders(this, Presets);
 }
 
 /** Stops the current audio component and releases the reference. */
@@ -392,7 +262,7 @@ void UTransitionManagerSubsystem::CleanupAndPoolCurrentEffect()
 		// Return to pool
 		if (UObject* EffectObj = CurrentEffect.GetObject())
 		{
-			ReturnEffectToPool(EffectObj);
+			EffectPool.Release(EffectObj);
 		}
 
 		CurrentEffect = nullptr;
@@ -610,20 +480,8 @@ void UTransitionManagerSubsystem::StartTransition(UTransitionPreset* Preset, ETr
 					CurrentEffect = nullptr;
 				}
 
-				UObject* EffectObj = nullptr;
-
-				// Check Pool (Reuse existing instance to avoid allocation and reduce GC pressure)
-				FTransitionEffectPool& Pool = EffectPool.FindOrAdd(Preset->EffectClass);
-				if (Pool.Effects.Num() > 0)
-				{
-					EffectObj = Pool.Effects.Pop();
-				}
-
-				// Create New if not found
-				if (!EffectObj)
-				{
-					EffectObj = NewObject<UObject>(this, Preset->EffectClass);
-				}
+				// Reuse a pooled instance if available, otherwise create a new one.
+				UObject* EffectObj = EffectPool.Acquire(Preset->EffectClass, this);
 
 				if (EffectObj && EffectObj->Implements<UTransitionEffect>())
 				{
@@ -648,7 +506,7 @@ void UTransitionManagerSubsystem::StartTransition(UTransitionPreset* Preset, ETr
 					PendingOldEffect->Cleanup();
 					if (UObject* OldEffectObj = PendingOldEffect.GetObject())
 					{
-						ReturnEffectToPool(OldEffectObj);
+						EffectPool.Release(OldEffectObj);
 					}
 				}
 			}
@@ -799,9 +657,9 @@ void UTransitionManagerSubsystem::PlaySequence(UTransitionSequence* Sequence)
 	}
 
 	// Sequences and level transitions are mutually exclusive: refuse if a level
-	// transition (or auto-reverse plan) is pending. bAutoReverseOnLevelLoad is
-	// the authoritative in-flight flag — it is cleared in OnPostLoadMapWithWorld.
-	if (bAutoReverseOnLevelLoad)
+	// transition (or auto-reverse plan) is pending. The handler's pending flag is
+	// the authoritative in-flight state — it is cleared in OnPostLoadMapWithWorld.
+	if (LevelTravelHandler && LevelTravelHandler->IsLevelTransitionPending())
 	{
 		UE_LOG(LogTransitionFX, Warning, TEXT("PlaySequence: A level transition is pending. Sequences cannot run during level transitions. Ignoring."));
 		return;
