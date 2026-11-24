@@ -3,6 +3,7 @@ M_Transition_<Effect> の MI と DA プリセットを作成する (既にあれ
 
   1. Materials/Instances/MI_Transition_<Effect>  (親 = M_Transition_<Effect>、オーバーライド無し)
   2. Data/DA_<Effect>                            (EffectClass / EasingType は DA_Iris の実値をミラー、
+                                                  ただし EASING にあるエフェクトはその値。
                                                   TransitionMaterial = MI、Duration 1.5s)
 
 対象は環境変数 TFX_EFFECTS (カンマ区切りのエフェクト名。例: TFX_EFFECTS=SpiralTiles)。
@@ -28,6 +29,9 @@ MI_DIR = "/TransitionFX/Materials/Instances"
 DA_DIR = "/TransitionFX/Data"
 REF_DA_PATH = "/TransitionFX/Data/DA_Iris"
 DURATION = 1.5
+# Effects whose preset does not mirror DA_Iris's easing (ETransitionEasing, Python enum names).
+# Spiral Tiles: the two arms speed up toward the centre, so the last lap closes crisply.
+EASING = {"SpiralTiles": "EASE_IN_SINE"}
 
 mel = unreal.MaterialEditingLibrary
 lib = unreal.EditorAssetLibrary
@@ -76,8 +80,10 @@ for effect in EFFECTS:
     da.set_editor_property("effect_class", ref_effect_class)
     da.set_editor_property("transition_material", mi)
     da.set_editor_property("default_duration", DURATION)
-    da.set_editor_property("easing_type", ref_easing)
+    easing = getattr(unreal.TransitionEasing, EASING[effect]) if effect in EASING else ref_easing
+    da.set_editor_property("easing_type", easing)
     check(f"{effect}: DA material", da.get_editor_property("transition_material") == mi)
+    check(f"{effect}: DA easing {easing}", da.get_editor_property("easing_type") == easing)
     check(f"{effect}: DA saved", lib.save_asset(da_path))
 
 print("[TEST] RESULT: " + ("PASS" if all(checks) else "FAIL"))

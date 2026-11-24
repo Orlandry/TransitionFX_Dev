@@ -280,7 +280,7 @@ TransitionFXでは一部のブループリントに **Latent Action** を採用�
 | **Ripple Rings** | 同心円のリングが中央から順に現れ、太くなりながらつながって画面を覆うトランジション。リングの数、リング間の遅延、エッジの柔らかさを調整可能。 | ![Ripple Rings](docs/images/effect_ripple_rings.webp) |
 | **Orbit Rings** | 同心円のリングが1本ずつ時計のようなスイープで埋まっていくトランジション。隣り合うリングは逆方向に回り、開始角度もリングごとに異なります。リングの数、リング間の遅延、リング同士の隙間を調整可能。 | ![Orbit Rings](docs/images/effect_orbit_rings.webp) |
 | **Tiles** | 画面がグリッド状に分割され、ブロックが中央から波のように拡大します。 | ![Tiles](docs/images/effect_tiles.webp) |
-| **Spiral Tiles** | 画面の外周から中央へ、渦巻き（矩形スパイラル）の順にタイルが1枚ずつ現れて画面を覆うトランジション。列数・行数と、同時に成長するタイルの数を調整可能。 | ![Spiral Tiles](docs/images/effect_spiral_tiles.webp) |
+| **Spiral Tiles** | 左上と右下の角から2本のアームが渦巻き（矩形スパイラル）の順にタイルを1枚ずつ出しながら中央へ進み、画面の真ん中で閉じるトランジション。列数・行数、アームの本数（1 または 2）、同時に成長するタイルの数を調整可能。 | ![Spiral Tiles](docs/images/effect_spiral_tiles.webp) |
 | **Box Roll** | 画面右から箱が転がり込み、下の段から順に積み上がって画面を覆うトランジション。段数、転がる速度、列・段ごとの遅延を調整可能。 | ![Box Roll](docs/images/effect_boxroll.webp) |
 | **Polka Dots** | 拡大する円（ハーフトーンパターン）の波が画面を覆います。ポップでモダンな外観。 | ![Polka Dots](docs/images/effect_polka_dots.webp) |
 | **Blinds** | スタイリッシュなストライプ/ベネチアンブラインド効果。ストライプが拡大・結合して画面を覆います。 | ![Blinds](docs/images/effect_blinds.webp) |

@@ -2,11 +2,14 @@
 M_Transition_SpiralTiles を Named Reroute 注釈付きで構築する (in-place 再構築可)。
 
 プラグインのコンテンツなので UE 5.5 のワークスペースで実行すること (CLAUDE.md "Plugin content is saved with UE 5.5")。
-数式の原型は Saved/TransitionIdeas/transition_ideas.py (numpy プロトタイプ) の spiral_tiles。
+数式の原型は Saved/TransitionIdeas/transition_ideas.py (numpy プロトタイプ) の spiral_tiles、
+2 本アームは Saved/TransitionIdeas/spiral_variants.py の order_two_arms。
 
-画面を Columns x Rows のタイルに分け、外周の左上から時計回りに中心へ向かう矩形スパイラルの順に
-タイルが中心から膨らんで埋まる。画面 UV をそのまま使うので、タイルが正方形になるのは
-Columns : Rows が画面のアスペクト比と同じとき (既定 16 x 9)。
+画面を Columns x Rows のタイルに分け、矩形スパイラルの順にタイルが中心から膨らんで埋まる。
+Arms = 2 (既定) では左上と右下の 2 本のアームが同じ渦を同時に時計回りに進み (180 度の回転対称)、
+各周を両端から閉じて中央の 2 タイルで終わる。Arms = 1 は 1.7.0 の動き (外周の左上から 1 本で
+中心へ。16 x 9 では最後に中央の 8 x 1 の列を左から右へ埋め、中心より右で終わる)。
+画面 UV をそのまま使うので、タイルが正方形になるのは Columns : Rows が画面のアスペクト比と同じとき (既定 16 x 9)。
 
   cols, rows = max(round(Columns), 1), max(round(Rows), 1)
   cell  = uv * (cols, rows)                         タイル座標
@@ -21,8 +24,18 @@ Columns : Rows が画面のアスペクト比と同じとき (既定 16 x 9)。
             左辺           2 * sw + 2 * sh - b
           上 > 右 > 下 > 左 の優先順で lerp で選ぶ (a, b は整数なので saturate が 0/1 の選択子になる)。
           幅か高さが 1 の最内周もこの式のままで正しい。
-  order = (ring * (2 * (cols + rows) - 4 * ring) + off) / (cols * rows)     0..(N-1)/N
+  offRot = 180 度回転した双子タイル (last - tile) の off。(a', b') = (sw - a, sh - b) を同じ式に入れたもの:
+            上 (b = sh)    sw - a
+            右 (a = 0)     sw + sh - b
+            下 (b = 0)     sw + sh + a
+            左             2 * sw + sh + b
+          (優先順は off と同じ)。通常の周では offRot = (off + 周長 / 2) mod 周長、
+          幅か高さが 1 の最内周では両端から数えた位置になる。
+  arms  = clamp(round(Arms), 1, 2)
+  lap   = arms = 2 なら min(off, offRot) (2 本のアームのうち先に着く方)、1 なら off
+  order = (ring * (2 * (cols + rows) - 4 * ring) / arms + lap) / (cols * rows / arms)     0..1 未満
   local = saturate((Progress * (1 + Tail) - order) / Tail)    タイルの成長度。Tail = 同時に成長中の区間の長さ
+                                                              (既定 0.03。1.7.0 は 0.07)
   size  = |frac(cell) - 0.5| * 2                    タイル中心からの距離 (軸ごと、1 = タイルの端)
   w     = |(ddx(cell.x), ddy(cell.y))| * 4          軸ごとの 2px (size 単位)
   edge  = local * (1 + w)                           タイルの現在の半幅。local = 1 で端を w だけ越える
@@ -66,6 +79,14 @@ def build_spiral_tiles():
     g.decl("last", g.binop(SUB, -2950, 90, g.use("grid", -3100, 90), 1.0), -2800, 90, C_CO)
     g.comment("grid = (cols, rows) = max(round(Columns / Rows), 1) / last = grid - 1 (index of the last column / row)",
               -4470, -100, 1900, 420, C_CO)
+
+    # ---- arms = clamp(round(Arms), 1, 2) / twoArms = arms - 1 ----
+    arms_p = g.sparam("Arms", 2.0, -2450, 0)
+    arms_r = g.unary(E.MaterialExpressionRound, -2250, 0, arms_p)
+    g.decl("arms", g.binop(MAX, -1950, 0, g.binop(MIN, -2100, 0, arms_r, 2.0), 1.0), -1800, 0, C_SC)
+    g.decl("twoArms", g.binop(SUB, -1950, 180, g.use("arms", -2100, 180), 1.0), -1800, 180, C_SC)
+    g.comment("arms = clamp(round(Arms), 1, 2): 2 = arms from the top-left and the bottom-right corner, "
+              "1 = a single arm (1.7.0) / twoArms = arms - 1", -2500, -100, 950, 420, C_SC)
 
     # ---- cell = uv * grid / tile = min(floor(cell), last) ----
     tc = g.expr(E.MaterialExpressionTextureCoordinate, -4400, 500)
@@ -122,19 +143,49 @@ def build_spiral_tiles():
               "bottom 2sw + sh - a / left 2sw + 2sh - b (priority top > right > bottom > left)",
               -1860, 670, 2150, 800, C_SC)
 
-    # ---- order = (ring * (2 * (cols + rows) - 4 * ring) + off) / (cols * rows) ----
+    # ---- offRot = off of the 180-degree twin tile (sw - a, sh - b) ----
+    g.decl("onNear", g.unary(E.MaterialExpressionOneMinus, 600, 760, g.unary(SAT, 450, 760, g.use("ab", 350, 760))),
+           750, 760, C_SC)
+    below = g.binop(SUB, 450, 920, g.use("sh", 350, 880), g.use("b", 350, 970))
+    g.decl("isBottom", g.unary(E.MaterialExpressionOneMinus, 600, 920, g.unary(SAT, 500, 920, below)),
+           750, 920, C_SC)
+    g.decl("half", g.binop(ADD, 600, 1120, g.use("sw", 450, 1080), g.use("sh", 450, 1170)), 750, 1120, C_SC)
+    top_r = g.binop(SUB, 1150, 760, g.use("sw", 1000, 720), g.use("a", 1000, 810))
+    right_r = g.binop(SUB, 1150, 920, g.use("half", 1000, 880), g.use("b", 1000, 970))
+    bottom_r = g.binop(ADD, 1150, 1080, g.use("half", 1000, 1040), g.use("a", 1000, 1130))
+    left_r = g.binop(ADD, 1150, 1240, g.use("base", 1000, 1200), g.use("b", 1000, 1290))
+    near_a = g.channel(1450, 900, g.use("onNear", 1300, 900), "r")
+    near_b = g.channel(1300, 1180, g.use("onNear", 1150, 1380), "g")
+    rot_bottom = g.lerp(1450, 1150, left_r, bottom_r, near_b)
+    rot_right = g.lerp(1650, 950, rot_bottom, right_r, near_a)
+    rot_top = g.lerp(1850, 800, rot_right, top_r, g.use("isBottom", 1650, 800))
+    g.decl("offRot", rot_top, 2000, 800, C_SC)
+    g.comment("offRot = off of the 180-degree twin tile (sw - a, sh - b): top (b == sh) sw - a / right (a == 0) "
+              "sw + sh - b / bottom (b == 0) sw + sh + a / left 2sw + sh + b (same priority as off)",
+              300, 670, 1900, 800, C_SC)
+
+    # ---- lap = arms == 2 ? min(off, offRot) : off ----
+    g.decl("lap", g.lerp(2550, 950, g.use("off", 2350, 900),
+                         g.binop(MIN, 2400, 1000, g.use("off", 2250, 980), g.use("offRot", 2250, 1070)),
+                         g.use("twoArms", 2350, 1150)), 2700, 950, C_SC)
+    g.comment("lap = index along the lap for the arm that reaches this tile first: two arms (top-left and "
+              "bottom-right) take min(off, offRot), one arm takes off", 2230, 670, 650, 600, C_SC)
+
+    # ---- order = (ring * (2 * (cols + rows) - 4 * ring) / arms + lap) / (cols * rows / arms) ----
     perim2 = g.binop(MUL, -4050, 1650, g.binop(ADD, -4200, 1650, g.use("cols", -4400, 1610),
                                               g.use("rows", -4400, 1700)), 2.0)
     ring4 = g.binop(MUL, -4050, 1800, g.use("ring", -4200, 1800), 4.0)
-    before = g.binop(MUL, -3700, 1700, g.use("ring", -3900, 1620), g.binop(SUB, -3900, 1720, perim2, ring4))
-    total = g.binop(MUL, -3700, 1900, g.use("cols", -3900, 1870), g.use("rows", -3900, 1960))
-    index = g.binop(ADD, -3500, 1700, before, g.use("off", -3700, 1600))
-    g.decl("order", g.binop(DIV, -3350, 1750, index, total), -3200, 1750, C_SC)
-    g.comment("order = (tiles in the laps outside this one + off) / tile count: 0 for the first tile, "
-              "(N - 1) / N for the last", -4470, 1500, 1500, 560, C_SC)
+    before = g.binop(MUL, -3850, 1700, g.use("ring", -4050, 1580), g.binop(SUB, -3950, 1760, perim2, ring4))
+    before_a = g.binop(DIV, -3700, 1700, before, g.use("arms", -3850, 1820))
+    total = g.binop(MUL, -3850, 1950, g.use("cols", -4050, 1920), g.use("rows", -4050, 2010))
+    total_a = g.binop(DIV, -3700, 1950, total, g.use("arms", -3850, 2060))
+    index = g.binop(ADD, -3550, 1700, before_a, g.use("lap", -3700, 1600))
+    g.decl("order", g.binop(DIV, -3400, 1750, index, total_a), -3250, 1750, C_SC)
+    g.comment("order = (tiles in the laps outside this one / arms + lap) / (tile count / arms): 0 for the first "
+              "tile, below 1 for the last", -4470, 1500, 1500, 620, C_SC)
 
     # ---- local = saturate((Progress * (1 + Tail) - order) / Tail) ----
-    tail_p = g.sparam("Tail", 0.07, -2850, 1900)
+    tail_p = g.sparam("Tail", 0.03, -2850, 1900)
     prog_p = g.sparam("Progress", 0.5, -2400, 1600)
     g.decl("tail", g.binop(MAX, -2650, 1900, tail_p, 0.0001), -2500, 1900, C_SC)
     stretch = g.binop(MUL, -2000, 1650, prog_p, g.binop(ADD, -2150, 1750, g.use("tail", -2300, 1750), 1.0))
@@ -168,7 +219,7 @@ def build_spiral_tiles():
               -3060, 2200, 2150, 500, C_FX)
 
     g.finish(mask, -700, 2350)
-    return g.verify_and_save(["Progress", "Invert", "FadeColor", "Columns", "Rows", "Tail"])
+    return g.verify_and_save(["Progress", "Invert", "FadeColor", "Columns", "Rows", "Tail", "Arms"])
 
 
 print("[TEST] RESULT: " + ("PASS" if build_spiral_tiles() else "FAIL"))
