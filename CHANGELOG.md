@@ -6,13 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [1.7.1] - 2026-11-24
+## [1.7.1] - 2026-11-25
 
 ### Changed
 
 - Plugin version bumped to **1.7.1** (`TransitionFX.uplugin` `VersionName`); README (EN/JA) version badge updated to match.
 - **Spiral Tiles closes in the center.** Two arms, from the top-left and the bottom-right corner, now run the spiral at the same time (180-degree rotational symmetry), so every lap is closed from both ends and the effect ends on the two center tiles. In 1.7.0 a single arm filled the last lap — the 8 × 1 center row of the 16 × 9 grid — from left to right and ended right of the center. The new `Arms` parameter (default 2) selects one or two arms. `Tail` defaults to 0.03 instead of 0.07, so each tile pops in faster, and `DA_SpiralTiles` uses **Sine In** easing instead of Linear, so the spiral speeds up toward the center. For the 1.7.0 motion, set `Arms` to 1 and `Tail` to 0.07 in a material instance and use Linear easing in a copy of the preset. Rendered in UE 5.8, the new order matches the numpy prototype (covered area within 0.05 %). README (EN/JA): Spiral Tiles description and preview updated.
-- Sample project / dev tooling only: `build_m_spiraltiles.py` builds the two-arm order and the `Arms` parameter. `build_effect_assets.py` sets the preset easing per effect (`EASING`) instead of always copying `DA_Iris`.
+- The Ripple Rings, Orbit Rings and Spiral Tiles master materials use the **Unlit** shading model, like the other masters (they were Default Lit in 1.7.0). Post Process materials render the same either way. Shader instruction counts and parameters do not change.
+- Sample project / dev tooling only: `build_m_spiraltiles.py` builds the two-arm order and the `Arms` parameter. `build_effect_assets.py` sets the preset easing per effect (`EASING`) instead of always copying `DA_Iris`. `tfx_material_graph.py`, `build_m_stripecascade.py` and `build_m_boxroll.py` create new masters as Unlit.
 
 ## [1.7.0] - 2026-11-21
 
