@@ -54,6 +54,8 @@ class Graph:
             self.mat.set_editor_property("blendable_location",
                                          unreal.BlendableLocation.BL_SCENE_COLOR_AFTER_TONEMAPPING)
             self.mat.set_editor_property("blendable_output_alpha", False)
+            # 既定の Default Lit のままだと cleanup_material_graphs.py が Unlit に直すことになる
+            self.mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
         assert self.mat, f"could not load or create {self.path}"
         self.results = []
         self.created = []

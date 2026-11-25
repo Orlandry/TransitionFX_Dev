@@ -52,6 +52,7 @@ if mat is None:
     mat.set_editor_property("material_domain", unreal.MaterialDomain.MD_POST_PROCESS)
     mat.set_editor_property("blendable_location", unreal.BlendableLocation.BL_SCENE_COLOR_AFTER_TONEMAPPING)
     mat.set_editor_property("blendable_output_alpha", False)
+    mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
     print(f"[TEST] created new {MAT_PATH}")
 assert fn_pos and fn_inv and mat, "required assets not found"
 
