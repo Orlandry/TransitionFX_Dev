@@ -60,6 +60,8 @@ _bl = getattr(unreal.BlendableLocation, "BL_SCENE_COLOR_AFTER_TONEMAPPING", None
 if _bl is None:
     _bl = unreal.BlendableLocation.BL_AFTER_TONEMAPPING
 mat.set_editor_property("blendable_location", _bl)
+# 毎回作り直すので、既定の Default Lit のままだと cleanup_material_graphs.py で直した Unlit が戻る
+mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
 
 def expr(cls, x, y):
     return mel.create_material_expression(mat, cls, x, y)
